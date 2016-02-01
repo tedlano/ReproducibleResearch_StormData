@@ -1,0 +1,262 @@
+---
+title: 'Reproducible Research: Peer Assessment 2 (Storm Data)'
+author: "Theodore Lano"
+date: "January 31, 2016"
+output: 
+  html_document:
+    keep_md: true
+---
+
+Health and Economic Impacts of Weather Events in the United States
+==================================================================
+
+Synopsis
+-------------------------------------------------------
+Using data from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database, we seek to evaluate the health and economic impacts of weather events.  Health impacts are evaluated based on the number of fatalities and injuries that occur, and economic impacts are a measure of property and crop damages as a result of weather events.
+
+Our approach is to clean the data by removing non-applicable data, re-classifying mislabeled data, and then summing up all fatalities, injuries, property damage, and crop damage by weather event types.  Non-applicable data includes data which was recorded before all event types were being monitored (incomplete sampling) and data which did not register any health or economic impact.  Many of the event types found in the raw data set were not official types as defined by [National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf), so a manual mapping strategy had to be implemented in order to include these data entries.
+
+Data Processing
+------------------------------------------------------
+The [Storm Data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) is downloaded and loaded into our program.  The code below will go into more detail on how we've went about our data processing.
+
+**Load libraries, set working directory, and download dataset**
+```{r}
+library(dplyr)
+library(plyr)
+#setwd('./R/ReproducibleResearch')
+#file_dl <- download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "StormData.csv.bz2")
+```
+
+**Get official event types (EVTYPE)**
+These can be found at http://www.nws.noaa.gov/directives/sym/pd01016005curr.pdf
+We will extract that data manually and enter each value into a text file.  This text file will be used to find unofficial event types.
+```{r}
+ev_types <- as.vector(read.csv("EVTYPE_Official.csv", header=F)[['V1']])
+ev_types <- toupper(ev_types)
+```
+
+**Define columns to retrieve from dataset**
+The dataset is very large, so we will define which columns we wish to retrieve
+These include: STATE, BGN_DATE, STATE, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP
+```{r}
+fac <- "factor"
+nul <- "NULL"
+num <- "numeric"
+col_classes <- c(nul, fac, rep(nul, 4), fac, fac, rep(nul, 14), rep(num, 3), fac, num, fac, rep(nul, 9))
+data <- read.csv("StormData.csv.bz2", header=T, sep=",", strip.white=TRUE, colClasses= col_classes)
+```
+
+**Output data dimensions for reference**
+```{r}
+dim(data) # 902297
+```
+
+**Filter out dates before 1996**
+Not all EVTYPEs were monitored before 1996.  In order to make a fair comparison, we will only look at time periods including all weather classifications.
+First we convert BGN_DATE to a Date type so that we can filter appropriately
+```{r}
+data$BGN_DATE <- as.Date(data$BGN_DATE, format = "%m/%d/%Y")
+data.dateSub <- filter(data, BGN_DATE > as.Date("12/31/1995", format = "%m/%d/%Y"))
+```
+
+**Output data dimensions for reference**
+```{r}
+dim(data.dateSub) # 653530
+```
+
+**Filter out non-damaging storm data**
+For the purposes of our analysis, we are not concerned with data that does not have an impact on public health or economics.  Therefore, we filter out data without fatalities, injuries, property damange, or crop damage
+```{r}
+data.dmg <- filter(data.dateSub, FATALITIES > 0 | INJURIES > 0 | PROPDMG > 0 | CROPDMG > 0)
+```
+
+**Output data dimensions for reference**
+```{r}
+dim(data.dmg) # 201318
+```
+
+**Find EVTYPE labels**
+Take a look at all unique EVTYPE labels to see how we want to map them into official labels
+```{r}
+data.dmg$EVTYPE <- toupper(data.dmg$EVTYPE)
+unique(data.dmg$EVTYPE)
+```
+
+**Create a clean dataset by transforming unofficial EVTYPE values into official ones**
+The ordering of these commands below is important due to the nature of find and replace strategies
+```{r}
+data.dmg_clean <- data.dmg
+data.dmg_clean$EVTYPE[grepl("LAKE EFFECT SNOW", data.dmg_clean$EVTYPE)] <- "LAKE-EFFECT SNOW"
+data.dmg_clean$EVTYPE[grepl("RIP CURRENT", data.dmg_clean$EVTYPE)] <- "RIP CURRENT"
+data.dmg_clean$EVTYPE[grepl("LANDSPOUT", data.dmg_clean$EVTYPE)] <- "TORNADO"
+data.dmg_clean$EVTYPE[grepl("WHIRLWIND", data.dmg_clean$EVTYPE)] <- "TORNADO"
+data.dmg_clean$EVTYPE[grepl("BLOWING DUST", data.dmg_clean$EVTYPE)] <- "DUST STORM"
+data.dmg_clean$EVTYPE[grepl("^FOG$", data.dmg_clean$EVTYPE)] <- "DENSE FOG"
+data.dmg_clean$EVTYPE[grepl("FIRE", data.dmg_clean$EVTYPE)] <- "WILDFIRE"
+data.dmg_clean$EVTYPE[grepl("LANDSLUMP", data.dmg_clean$EVTYPE)] <- "DEBRIS FLOW"
+data.dmg_clean$EVTYPE[grepl("SQUALL", data.dmg_clean$EVTYPE)] <- "BLIZZARD"
+data.dmg_clean$EVTYPE[grepl("BLOWING SNOW", data.dmg_clean$EVTYPE)] <- "BLIZZARD"
+data.dmg_clean$EVTYPE[grepl("(HEAVY|EXCESSIVE) SNOW", data.dmg_clean$EVTYPE)] <- "HEAVY SNOW"
+data.dmg_clean$EVTYPE[grepl("C(OA)?ST(A)?L( )+FLOOD", data.dmg_clean$EVTYPE)] <- "COASTAL FLOOD"
+data.dmg_clean$EVTYPE[grepl("TIDAL FLOOD", data.dmg_clean$EVTYPE)] <- "COASTAL FLOOD"
+data.dmg_clean$EVTYPE[grepl("FLASH", data.dmg_clean$EVTYPE)] <- "FLASH FLOOD"
+data.dmg_clean$EVTYPE[grepl("RIVER FLOOD", data.dmg_clean$EVTYPE)] <- "FLOOD"
+data.dmg_clean$EVTYPE[grepl("FLD", data.dmg_clean$EVTYPE)] <- "FLOOD"
+data.dmg_clean$EVTYPE[grepl("(SLIDE|EROSION)", data.dmg_clean$EVTYPE)] <- "DEBRIS FLOW"
+data.dmg_clean$EVTYPE[grepl("SURF", data.dmg_clean$EVTYPE)] <- "HIGH SURF"
+data.dmg_clean$EVTYPE[grepl("HIGH WATER", data.dmg_clean$EVTYPE)] <- "HIGH SURF"
+data.dmg_clean$EVTYPE[grepl("HIGH TIDE", data.dmg_clean$EVTYPE)] <- "HIGH SURF"
+data.dmg_clean$EVTYPE[grepl("HIGH SWELLS", data.dmg_clean$EVTYPE)] <- "HIGH SURF"
+data.dmg_clean$EVTYPE[grepl("STORM SURGE", data.dmg_clean$EVTYPE)] <- "STORM TIDE"
+data.dmg_clean$EVTYPE[grepl("HEAVY SEAS", data.dmg_clean$EVTYPE)] <- "STORM TIDE"
+data.dmg_clean$EVTYPE[grepl("ROUGH SEAS", data.dmg_clean$EVTYPE)] <- "STORM TIDE"
+data.dmg_clean$EVTYPE[grepl("HIGH SEAS", data.dmg_clean$EVTYPE)] <- "STORM TIDE"
+data.dmg_clean$EVTYPE[grepl("COASTAL( )?STORM", data.dmg_clean$EVTYPE)] <- "STORM TIDE"
+data.dmg_clean$EVTYPE[grepl("HURRICANE", data.dmg_clean$EVTYPE)] <- "HURRICANE/TYPHOON"
+data.dmg_clean$EVTYPE[grepl("TYPHOON", data.dmg_clean$EVTYPE)] <- "HURRICANE/TYPHOON"
+data.dmg_clean$EVTYPE[grepl("EXTREME (COLD|WINDCHILL)", data.dmg_clean$EVTYPE)] <- "EXTREME COLD/WIND CHILL"
+data.dmg_clean$EVTYPE[grepl("^COLD WEATHER$", data.dmg_clean$EVTYPE)] <- "COLD/WIND CHILL"
+data.dmg_clean$EVTYPE[grepl("^UNSEASONABL(E|Y) COLD$", data.dmg_clean$EVTYPE)] <- "COLD/WIND CHILL"
+data.dmg_clean$EVTYPE[grepl("EXTENDED COLD", data.dmg_clean$EVTYPE)] <- "COLD/WIND CHILL"
+data.dmg_clean$EVTYPE[grepl("EXPOSURE", data.dmg_clean$EVTYPE)] <- "COLD/WIND CHILL"
+data.dmg_clean$EVTYPE[grepl("^COLD", data.dmg_clean$EVTYPE)] <- "COLD/WIND CHILL"
+data.dmg_clean$EVTYPE[grepl("SMALL HAIL", data.dmg_clean$EVTYPE)] <- "HAIL"
+data.dmg_clean$EVTYPE[grepl("NON[- ]?TSTM WIND", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("MARINE TSTM WIND", data.dmg_clean$EVTYPE)] <- "MARINE THUNDERSTORM WIND"
+data.dmg_clean$EVTYPE[grepl("^THUNDERSTORM$", data.dmg_clean$EVTYPE)] <- "THUNDERSTORM WIND"
+data.dmg_clean$EVTYPE[grepl("TSTM WIND", data.dmg_clean$EVTYPE)] <- "THUNDERSTORM WIND"
+data.dmg_clean$EVTYPE[grepl("^THUNDERSTORM WIND", data.dmg_clean$EVTYPE)] <- "THUNDERSTORM WIND"
+data.dmg_clean$EVTYPE[grepl("^STRONG WIND", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("GUSTY", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("^HIGH WIND", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("GRADIENT WIND", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("DOWNBURST", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("MICROBURST", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("NON-SEVERE WIND DAMAGE", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("^WIND", data.dmg_clean$EVTYPE)] <- "STRONG WIND"
+data.dmg_clean$EVTYPE[grepl("(EXCESSIVE|RECORD) HEAT", data.dmg_clean$EVTYPE)] <- "EXCESSIVE HEAT"
+data.dmg_clean$EVTYPE[grepl("HEAT WAVE", data.dmg_clean$EVTYPE)] <- "EXCESSIVE HEAT"
+data.dmg_clean$EVTYPE[grepl("WARM", data.dmg_clean$EVTYPE)] <- "HEAT"
+data.dmg_clean$EVTYPE[grepl("MIXED PRECIP", data.dmg_clean$EVTYPE)] <- "SLEET"
+data.dmg_clean$EVTYPE[grepl("FREEZING RAIN", data.dmg_clean$EVTYPE)] <- "SLEET"
+data.dmg_clean$EVTYPE[grepl("RAIN/SNOW", data.dmg_clean$EVTYPE)] <- "SLEET"
+data.dmg_clean$EVTYPE[grepl("FREEZING DRIZZLE", data.dmg_clean$EVTYPE)] <- "SLEET"
+data.dmg_clean$EVTYPE[grepl("GLAZE", data.dmg_clean$EVTYPE)] <- "FREEZING FOG"
+data.dmg_clean$EVTYPE[grepl("FROST", data.dmg_clean$EVTYPE)] <- "FROST/FREEZE"
+data.dmg_clean$EVTYPE[grepl("FREEZE$", data.dmg_clean$EVTYPE)] <- "FROST/FREEZE"
+data.dmg_clean$EVTYPE[grepl("WINTER WEATHER", data.dmg_clean$EVTYPE)] <- "WINTER WEATHER"
+data.dmg_clean$EVTYPE[grepl("WINTRY MIX", data.dmg_clean$EVTYPE)] <- "WINTER STORM"
+data.dmg_clean$EVTYPE[grepl("LIGHT SNOW", data.dmg_clean$EVTYPE)] <- "WINTER WEATHER"
+data.dmg_clean$EVTYPE[grepl("LATE SEASON SNOW", data.dmg_clean$EVTYPE)] <- "WINTER WEATHER"
+data.dmg_clean$EVTYPE[grepl("^SNOW$", data.dmg_clean$EVTYPE)] <- "WINTER WEATHER"
+data.dmg_clean$EVTYPE[grepl("TORRENTIAL RAINFALL", data.dmg_clean$EVTYPE)] <- "HEAVY RAIN"
+data.dmg_clean$EVTYPE[grepl("UNSEASONAL RAIN", data.dmg_clean$EVTYPE)] <- "HEAVY RAIN"
+data.dmg_clean$EVTYPE[grepl("^RAIN$", data.dmg_clean$EVTYPE)] <- "HEAVY RAIN"
+data.dmg_clean$EVTYPE[grepl("(ICE|ICY)", data.dmg_clean$EVTYPE)] <- "ICE STORM"
+data.dmg_clean$EVTYPE[grepl("FREEZING SPRAY", data.dmg_clean$EVTYPE)] <- "ICE STORM"
+data.dmg_clean$EVTYPE[grepl("MARINE ACCIDENT", data.dmg_clean$EVTYPE)] <- "OTHER"
+data.dmg_clean$EVTYPE[grepl("ROGUE WAVE", data.dmg_clean$EVTYPE)] <- "OTHER"
+data.dmg_clean$EVTYPE[grepl("DAM BREAK", data.dmg_clean$EVTYPE)] <- "OTHER"
+data.dmg_clean$EVTYPE[grepl("DROWNING", data.dmg_clean$EVTYPE)] <- "OTHER"
+data.dmg_clean$EVTYPE <- as.factor(data.dmg_clean$EVTYPE)
+```
+
+**Sum fatality values by EVTYPE, put into descending order, clean up column and row names**
+```{r}
+data.fatalities <- aggregate(data.dmg_clean$FATALITIES, list(data.dmg_clean$EVTYPE), sum)
+data.fatalities <- data.fatalities[order(-data.fatalities$x),]
+rownames(data.fatalities) <- 1:nrow(data.fatalities)
+colnames(data.fatalities) <- c("EventType", "Fatalities")
+head(data.fatalities, n=10)
+```
+
+**Sum injury values by EVTYPE, put into descending order, clean up column and row names**
+```{r}
+data.injuries <- aggregate(data.dmg_clean$INJURIES, list(data.dmg_clean$EVTYPE), sum)
+data.injuries <- data.injuries[order(-data.injuries$x),]
+rownames(data.injuries) <- 1:nrow(data.injuries)
+colnames(data.injuries) <- c("EventType", "Injuries")
+head(data.injuries, n=10)
+```
+
+**Clean Property Damage Data**
+Take a subset of the cleaned data where the PROPDMG field is more than 0
+Convert PROPDMGEXP from a character representation to an exponential of 10
+   H (Hundreds)  = 10^2
+   K (Thousands) = 10^3
+   M (Millions)  = 10^2
+   B (Hundreds)  = 10^2
+     (blank)     = 10^0
+Finally, multiply PROPDMG by 10 raised to the exponent of PROPDMGEXP to get the total property damage in US Dollars
+```{r}
+data.propDmg <- filter(data.dmg_clean, PROPDMG > 0)
+data.propDmg$PROPDMGEXP <- gsub('H', 2, data.propDmg$PROPDMGEXP)
+data.propDmg$PROPDMGEXP <- gsub('K', 3, data.propDmg$PROPDMGEXP) 
+data.propDmg$PROPDMGEXP <- gsub('M', 6, data.propDmg$PROPDMGEXP) 
+data.propDmg$PROPDMGEXP <- gsub('B', 9, data.propDmg$PROPDMGEXP) 
+data.propDmg$PROPDMGEXP <- gsub('^$', 0, data.propDmg$PROPDMGEXP)
+data.propDmg$PROPDMGEXP <- as.integer(data.propDmg$PROPDMGEXP)
+data.propDmg <- mutate(data.propDmg, PROPDMGVAL = PROPDMG * 10^PROPDMGEXP)
+```
+
+**Sum the Property Damage Values (PROPDMGVAL) by EVTYPE, put into decending order, clean up column and row names**
+```{r}
+data.propDmgSum <- aggregate(data.propDmg$PROPDMGVAL, list(data.propDmg$EVTYPE), sum)
+data.propDmgSum <- data.propDmgSum[order(-data.propDmgSum$x),]
+rownames(data.propDmgSum) <- 1:nrow(data.propDmgSum)
+colnames(data.propDmgSum) <- c("EventType", "ProperyDamage")
+```
+
+**Clean Crop Damage Data**
+Take a subset of the cleaned data where the CROPDMG field is more than 0
+Convert CROPDMGEXP from a character representation to an exponential of 10 (same method as PROPDMGEXP)
+Finally, multiply CROPDMG by 10 raised to the exponent of CROPDMGEXP to get the total crop damage in US 
+```{r}
+data.cropDmg <- filter(data.dmg_clean, CROPDMG > 0)
+data.cropDmg$CROPDMGEXP <- gsub('H', 2, data.cropDmg$CROPDMGEXP)
+data.cropDmg$CROPDMGEXP <- gsub('K', 3, data.cropDmg$CROPDMGEXP) 
+data.cropDmg$CROPDMGEXP <- gsub('M', 6, data.cropDmg$CROPDMGEXP) 
+data.cropDmg$CROPDMGEXP <- gsub('B', 9, data.cropDmg$CROPDMGEXP)
+data.cropDmg$CROPDMGEXP <- gsub('^$', 0, data.cropDmg$CROPDMGEXP)
+data.cropDmg$CROPDMGEXP <- as.integer(data.cropDmg$CROPDMGEXP)
+data.cropDmg <- mutate(data.cropDmg, CROPDMGVAL = CROPDMG * 10^CROPDMGEXP)
+```
+
+**Sum the Crop Damage Values (CROPDMGVAL) by EVTYPE, put into decending order, clean up column and row names**
+```{r}
+data.cropDmgSum <- aggregate(data.cropDmg$CROPDMGVAL, list(data.cropDmg$EVTYPE), sum)
+data.cropDmgSum <- data.cropDmgSum[order(-data.cropDmgSum$x),]
+rownames(data.cropDmgSum) <- 1:nrow(data.cropDmgSum)
+colnames(data.cropDmgSum) <- c("EventType", "CropDamage")
+```
+
+**Merge property and crop damage data for better readbility**
+```{r}
+economicDamage <- merge(data.propDmgSum, data.cropDmgSum, all = TRUE)
+economicDamage <- mutate(economicData, TotalDamage = PropetyDamage + CropDamage)
+```
+
+**Create a plot to visualize damage done to property vs crops**
+```{r}
+propDmg_top <- data.propDmgSum[1:5,]
+cropDmg_top <- data.cropDmgSum[1:5,]
+
+main_text <- "Total Economic Damage ($) by Event Type from Jan 1996 - Oct 2011"
+y_lim <- c(0, 1.5e+11)
+
+par(mfrow = c(1, 2), mar = c(11, 5, 1, 0), oma = c( 0, 0, 2, 0 )) 
+barplot(propDmg_top$ProperyDamage, names.arg = propDmg_top$EventType, las=2,
+        ylim = y_lim, col="blue")
+par(mar = c(11, 0, 1, 5))
+barplot(cropDmg_top$CropDamage, names.arg = cropDmg_top$EventType, las=2, 
+        axes = FALSE, ylim = y_lim, col="red")
+
+title( main_text, outer = TRUE )
+legend("topright", c("Property Damage", "Crop Damage"), fill=c("blue", "red"))
+```
+
+**Print Economic Damage Data for reference**
+```{r}
+print(economicDamage)
+```
