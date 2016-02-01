@@ -1,7 +1,14 @@
 library(dplyr)
 library(plyr)
+library(reshape2)
+library(ggplot2)
 setwd('./R/ReproducibleResearch')
-file_dl <- download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "StormData.csv.bz2")
+
+file_dl <- './StormData.csv.bz2'
+if (!file.exists(file_dl))
+{
+  file_dl <- download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "StormData.csv.bz2")
+}
 
 # Only the following columns are required for our analysis:
 ## STATE, BGN_DATE, STATE, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP
@@ -159,17 +166,19 @@ rownames(economicDamage) <- 1:nrow(economicDamage)
 economicDamage_top <- economicDamage[1:10,]
 keeps <- c("EventType","PropertyDamage", "CropDamage")
 economicDamage_top = economicDamage_top[keeps]
-propDmg_top <- data.propDmgSum[1:5,]
-cropDmg_top <- data.cropDmgSum[1:5,]
 
-library(reshape2)
 DF1 <- melt(economicDamage_top, id.var="EventType")
-
-library(ggplot2)
 g <- ggplot(DF1, aes(x = EventType, y = value, fill = variable)) + 
   geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-g+ ggtitle("Property and Crop Damage by Weather Event Type") + labs(x="Event Type",y="Damage Amount ($)") 
+g <- g + scale_fill_discrete(name="Legend", breaks=c("PropertyDamage", "CropDamage"),
+  labels=c("Property Damage", "Crop Damage") )
+g + ggtitle("Property and Crop Damage by Weather Event Type") + 
+  labs(x="Event Type", y="Damage Amount ($)")
 
+
+
+propDmg_top <- data.propDmgSum[1:5,]
+cropDmg_top <- data.cropDmgSum[1:5,]
 
 barplot(economicDamage_top, names.arg=economicDamage_top$EventType, ylim=c(0,1.5e11), las=2)
 
